@@ -1,7 +1,26 @@
-- hosts: lab
-  become: yes
-  roles:
-    - common
-  tags:
-    lab
+---
+- hosts: all
+  become: true
+  pre_tasks:
 
+  - name: update repo apt-cache
+    tags: always
+    apt:
+      update_cache: yes
+    changed_when: false
+    when: ansible_distribution == "Debian"
+
+- hosts: all
+  become: true
+  roles:
+    - base
+
+- hosts: target
+  become: true
+  roles:
+    - target
+
+- hosts: client
+  become: true
+  roles:
+    - target

@@ -1,0 +1,17 @@
+---
+# Create an unprivileged user to demonstrate sudo alarm.
+- name: Add the user 'unpriv' with a bash shell.
+  ansible.builtin.user:
+    name: unpriv
+    password: $6$yyV.JxSuT3NKnG1m$HmpD8aZOjLVjth2UrieNeAiwicd3auJbIhNbwlOxCW7wHUl171C7Ep/Qnisuc5IV9sfwx.1zDaKG2NKyj5F1q1
+    shell: /bin/bash
+
+# create the cyberFolkGlos user as admin.
+- name: Add the user 'cyberFolkGlos' with a bash shell.
+  ansible.builtin.user:
+    name: cyberFolkGlos
+    password: $6$ESzNgtf1EHlywE23$Jzmc4M9xh0/sorRlc.AmC7PE8noJ6RjgdBG7/4iexF1NWVsI22AxbAdk5tm7i41HSw8Dxb8BqhjL10e5AqBfK/
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+
