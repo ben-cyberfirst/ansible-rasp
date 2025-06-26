@@ -1,10 +1,45 @@
-# create the cyberfolkglos user
-# set password
+---
 
-# set static IPs
+- name: Install docker from script
+  ansible.builtin.shell: |
+    curl -fssL https://get.docker.com | sh
+    usermod -aG docker {{default_user}}
+  args:
+    creates: /usr/bin/docker 
 
+# Enable DHCP
+# install tools:
+- name: Add dnsmasq
+  apt:
+    name: dnsmasq
+    state: present
+
+- name: Setup and configure dnsmasq
+  template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.conf
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - restart dnsmasq
+
+- name: ensure dnsmasq is enabled
+  service: 
+    name: dnsmasq
+    enabled: true
+    state: stopped
+
+
+# Do these in a docker container
 # install vunerable_key_app
 # start key services
 
 # install sign in server
 # start sign in server
+
+
+
+
+# set static IPs
+

@@ -23,4 +23,4 @@
 - hosts: client
   become: true
   roles:
-    - target
+    - client

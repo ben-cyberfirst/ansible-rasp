@@ -6,12 +6,38 @@
     password: $6$yyV.JxSuT3NKnG1m$HmpD8aZOjLVjth2UrieNeAiwicd3auJbIhNbwlOxCW7wHUl171C7Ep/Qnisuc5IV9sfwx.1zDaKG2NKyj5F1q1
     shell: /bin/bash
 
+# # create the cyberFolkGlos user as admin.
+# - name: Add the user 'cyberFolkGlos' with a bash shell.
+#   ansible.builtin.user:
+#     name: cyberfolkglos
+#     password: $6$ESzNgtf1EHlywE23$Jzmc4M9xh0/sorRlc.AmC7PE8noJ6RjgdBG7/4iexF1NWVsI22AxbAdk5tm7i41HSw8Dxb8BqhjL10e5AqBfK/
+#     shell: /bin/bash
+#     groups: sudo
+#     append: yes
+
 # create the cyberFolkGlos user as admin.
-- name: Add the user 'cyberFolkGlos' with a bash shell.
+- name: Add the user 'cyberfirststudent' with a bash shell.
   ansible.builtin.user:
-    name: cyberFolkGlos
-    password: $6$ESzNgtf1EHlywE23$Jzmc4M9xh0/sorRlc.AmC7PE8noJ6RjgdBG7/4iexF1NWVsI22AxbAdk5tm7i41HSw8Dxb8BqhjL10e5AqBfK/
+    name: cyberfirststudent
+    password: $6$VEBbHLITSRx0WnfS$4cWjRadaYgQxoj0773XDg61rh1Xh/aOcCkwXFlY0tH1W3C94eWB3WmzRNhNebRKldIjJCdwjCZTlKCw7mT26A0
     shell: /bin/bash
     groups: sudo
     append: yes
+
+
+# install tools:
+- name: Add wireshark
+  apt:
+    name: wireshark
+    state: present
+
+- name: Add netcat
+  apt:
+    name: netcat-traditional
+    state: present
+
+- name: Add nmap
+  apt:
+    name: nmap
+    state: present
 
