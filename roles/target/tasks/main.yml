@@ -1,12 +1,5 @@
 ---
 
-- name: Install docker from script
-  ansible.builtin.shell: |
-    curl -fssL https://get.docker.com | sh
-    usermod -aG docker {{default_user}}
-  args:
-    creates: /usr/bin/docker 
-
 # Enable DHCP
 # install tools:
 - name: Add dnsmasq
@@ -31,7 +24,79 @@
     state: stopped
 
 
+# Install docker and docker compose, clone the repo and build the container.
+- name: Install docker from script
+  ansible.builtin.shell: |
+    curl -fssL https://get.docker.com | sh
+    usermod -aG docker {{default_user}}
+  args:
+    creates: /usr/bin/docker 
+
+- name: Install docker compose
+  apt:
+    name: docker-compose
+    state: present
+
+- name: Create the .ssh folder
+  file:
+    path: /home/cyberfolkglos/.ssh
+    state: directory
+    mode: '0755'
+
+- name: Copy private ssh key
+  ansible.builtin.copy:
+    src: /home/cyberfolkglos/.ssh/id_ed25519
+    dest: /home/cyberfolkglos/.ssh/id_ed25519
+    mode: 0600
+    owner: cyberfolkglos
+    group: cyberfolkglos
+
+
+- name: Clone Ethical_Hacking Repository Using PAT
+  git:
+    repo: 'https://ben-cyberfirst:cyber-first-schools-github@github.com/ben-cyberfirst/ethical_hacking_exercise.git'
+    dest: /opt/ethical_hacking_exercise
+    version: main
+    accept_hostkey: yes
+    github_token: {{ lookup('env', 'GITHUB_TOKEN') }}
+  environment:
+    GIT_ASKPASS: /bin/echo
+    GIT_USERNAME: {{ github_token }}
+    GIT_PASSWORD: {{ github_token }}
+
+
+- name: Build DockerImage
+  command: docker build -t ethical_hacking .
+  args:
+    chdir: /opt/ethical_hacking_exercise
+  become: yes
+
+- name: Deploy with docker_compose
+  command: docker-compose up -d
+  args:
+    chdir: /opt/ethical_hacking_exercise
+  become: yes
+
+- name: Bridge the network
+  shell:
+    sudo ip link add link eth0 name macvlan0 type macvlan mode bridge
+    sudo ip addr add 10.84.84.240/32 dev macvlan0
+    sudo ip link set macvlan0 up
+    sudo ip route add 10.84.84.0/24 macvlan0
+    sudo ip route add 10.84.84.0/24 dev macvlan0
+  register: SEQOUT
+
+
 # Do these in a docker container
+# - name: Copy Docker-compose.yml
+#   ansible.builtin.copy:
+#     src: <source-loction>
+#     dest: /tmp/docker-compose.yml
+
+# - name: Deploy container with docker compose
+#   community.docker.docker_compose:
+#     project_src: /tmp
+#     restarted: true
 # install vunerable_key_app
 # start key services
 
