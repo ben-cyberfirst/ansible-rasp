@@ -1,0 +1,125 @@
+---
+- name: Deploy School Platform to Raspberry Pi
+  hosts: classroom_nodes
+  become: yes
+  vars:
+    # Macvlan settings
+    macvlan_interface: macvlan0
+    parent_interface: wlan0           # Change to 'eth0' if wired
+    host_macvlan_ip: 10.84.84.10
+    host_macvlan_cidr: 24
+
+    # Project paths
+    deployment_src: ./school-platform  # Local folder with docker-compose & services
+    deployment_dest: /opt/school-platform
+
+    # Hugo local URL
+    hugo_url: http://localhost:1313
+
+  tasks:
+    # --- 1. Install Docker ---
+    - name: Install required packages for Docker install
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Install Docker
+      shell: curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Enable docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Docker Compose plugin
+      apt:
+        name: docker-compose-plugin
+        state: present
+
+    # --- 2. Setup macvlan for host access ---
+    - name: Create macvlan host interface
+      command: ip link add {{ macvlan_interface }} link {{ parent_interface }} type macvlan mode bridge
+      ignore_errors: yes
+
+    - name: Assign IP to macvlan interface
+      command: ip addr add {{ host_macvlan_ip }}/{{ host_macvlan_cidr }} dev {{ macvlan_interface }}
+      ignore_errors: yes
+
+    - name: Bring up macvlan interface
+      command: ip link set {{ macvlan_interface }} up
+      ignore_errors: yes
+
+    - name: Persist macvlan interface config
+      copy:
+        dest: /etc/network/interfaces.d/{{ macvlan_interface }}.cfg
+        content: |
+          auto {{ macvlan_interface }}
+          iface {{ macvlan_interface }} inet static
+            address {{ host_macvlan_ip }}
+            netmask 255.255.255.0
+            pre-up ip link add {{ macvlan_interface }} link {{ parent_interface }} type macvlan mode bridge
+            up ip link set {{ macvlan_interface }} up
+
+    # --- 3. Copy the local Docker project ---
+    - name: Copy platform project to Pi
+      copy:
+        src: "{{ deployment_src }}/"
+        dest: "{{ deployment_dest }}/"
+        owner: root
+        group: root
+        mode: "0755"
+
+    # --- 4. Build & start containers ---
+    - name: Build and start containers
+      shell: docker compose up --build -d
+      args:
+        chdir: "{{ deployment_dest }}"
+
+    # --- Make containers start on boot ---
+    - name: Enable docker-compose systemd service
+      copy:
+        dest: /etc/systemd/system/school-platform.service
+        content: |
+          [Unit]
+          Description=School Platform Docker Compose Service
+          Requires=docker.service
+          After=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory={{ deployment_dest }}
+          ExecStart=/usr/bin/docker compose up -d
+          ExecStop=/usr/bin/docker compose down
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: enable-service
+
+    # --- 5. Set homepage / kiosk mode ---
+    - name: Auto-launch Hugo site in Chromium kiosk mode at startup
+      copy:
+        dest: "{{ ansible_env.HOME }}/.config/autostart/hugo.desktop"
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Exec=chromium-browser --kiosk {{ hugo_url }}
+          Hidden=false
+          NoDisplay=false
+          X-GNOME-Autostart-enabled=true
+          Name=HugoDocs
+
+  handlers:
+    - name: enable-service
+      systemd:
+        name: school-platform.service
+        enabled: yes
+        state: started

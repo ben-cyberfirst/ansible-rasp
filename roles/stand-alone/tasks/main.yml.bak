@@ -1,0 +1,142 @@
+---
+
+- name: Configure macvlan host interface for Docker macvlan network
+  become: yes
+  vars:
+    macvlan_interface: macvlan0
+    parent_interface: wlan0          # CHANGE to match your docker-compose parent
+    host_macvlan_ip: 10.84.84.10      # CHANGE to unused IP in same subnet as containers
+    host_macvlan_cidr: 24
+  block:
+    - name: Create macvlan interface
+      ansible.builtin.command:
+        cmd: ip link add {{ macvlan_interface }} link {{ parent_interface }} type macvlan mode bridge
+      args:
+        warn: false
+      changed_when: false
+
+    - name: Assign IP to macvlan interface
+      ansible.builtin.command:
+        cmd: ip addr add {{ host_macvlan_ip }}/{{ host_macvlan_cidr }} dev {{ macvlan_interface }}
+      args:
+        warn: false
+      changed_when: false
+
+    - name: Bring up macvlan interface
+      ansible.builtin.command:
+        cmd: ip link set {{ macvlan_interface }} up
+      args:
+        warn: false
+      changed_when: false
+
+    - name: Persist macvlan configuration
+      ansible.builtin.copy:
+        dest: /etc/network/interfaces.d/{{ macvlan_interface }}.cfg
+        content: |
+          auto {{ macvlan_interface }}
+          iface {{ macvlan_interface }} inet static
+            address {{ host_macvlan_ip }}
+            netmask 255.255.255.0
+            pre-up ip link add {{ macvlan_interface }} link {{ parent_interface }} type macvlan mode bridge
+            up ip link set {{ macvlan_interface }} up
+
+
+# Install docker and docker compose, clone the repo and build the container.
+- name: Install docker from script
+  ansible.builtin.shell: |
+    curl -fssL https://get.docker.com | sh
+    usermod -aG docker {{default_user}}
+  args:
+    creates: /usr/bin/docker 
+
+- name: Install docker compose
+  apt:
+    name: docker-compose
+    state: present
+
+- name: Create the .ssh folder
+  file:
+    path: /home/cyberfolkglos/.ssh
+    state: directory
+    mode: '0755'
+
+- name: Copy private ssh key
+  ansible.builtin.copy:
+    src: /home/cyberfolkglos/.ssh/id_ed25519
+    dest: /home/cyberfolkglos/.ssh/id_ed25519
+    mode: 0600
+    owner: cyberfolkglos
+    group: cyberfolkglos
+
+
+- name: Clone Ethical_Hacking Repository Using PAT
+  git:
+    repo: 'https://ben-cyberfirst:cyber-first-schools-github@github.com/ben-cyberfirst/ethical_hacking_exercise.git'
+    dest: /opt/ethical_hacking_exercise
+    version: main
+    accept_hostkey: yes
+    github_token: {{ lookup('env', 'GITHUB_TOKEN') }}
+  environment:
+    GIT_ASKPASS: /bin/echo
+    GIT_USERNAME: {{ github_token }}
+    GIT_PASSWORD: {{ github_token }}
+
+
+- name: Build DockerImage
+  command: docker build -t ethical_hacking .
+  args:
+    chdir: /opt/ethical_hacking_exercise
+  become: yes
+
+- name: Deploy with docker_compose
+  command: docker-compose up -d
+  args:
+    chdir: /opt/ethical_hacking_exercise
+  become: yes
+
+- name: Bridge the network
+  shell:
+    sudo ip link add link eth0 name macvlan0 type macvlan mode bridge
+    sudo ip addr add 10.84.84.240/32 dev macvlan0
+    sudo ip link set macvlan0 up
+    sudo ip route add 10.84.84.0/24 macvlan0
+    sudo ip route add 10.84.84.0/24 dev macvlan0
+  register: SEQOUT
+
+
+
+- name: Auto-launch Hugo site in Chromium kiosk mode
+  copy:
+    dest: "{{ ansible_env.HOME }}/.config/autostart/hugo.desktop"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Exec=chromium-browser --kiosk http://localhost:1313
+      Hidden=false
+      NoDisplay=false
+      X-GNOME-Autostart-enabled=true
+      Name=HugoDocs
+
+
+
+# Do these in a docker container
+# - name: Copy Docker-compose.yml
+#   ansible.builtin.copy:
+#     src: <source-loction>
+#     dest: /tmp/docker-compose.yml
+
+# - name: Deploy container with docker compose
+#   community.docker.docker_compose:
+#     project_src: /tmp
+#     restarted: true
+# install vunerable_key_app
+# start key services
+
+# install sign in server
+# start sign in server
+
+
+
+
+# set static IPs
+
