@@ -1,0 +1,152 @@
+---
+- name: Prepare prebuilt Docker images on build node
+  hosts: build_node
+  become: yes
+  vars:
+    deployment_src: ./school-platform           # Path to project repo with compose & Dockerfiles
+    image_dir: /tmp/docker-images                # Temporary storage for .tar files
+    hugo_image_name: hugo:latest
+    sup_image_name: supervisord_services:latest
+  tasks:
+    - name: Install docker & compose if missing
+      apt:
+        name:
+          - docker.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Ensure image output dir exists
+      file:
+        path: "{{ image_dir }}"
+        state: directory
+
+    - name: Build Hugo image
+      shell: docker build -t {{ hugo_image_name }} ./hugo
+      args:
+        chdir: "{{ deployment_src }}"
+
+    - name: Build Supervisord Services image
+      shell: docker build -t {{ sup_image_name }} ./supervisord_services
+      args:
+        chdir: "{{ deployment_src }}"
+
+    - name: Save Hugo image to tar
+      shell: docker save -o {{ image_dir }}/hugo.tar {{ hugo_image_name }}
+
+    - name: Save supervisord_services image to tar
+      shell: docker save -o {{ image_dir }}/supervisord_services.tar {{ sup_image_name }}
+
+
+- name: Deploy prebuilt Docker images to classroom Pis
+  hosts: classroom_nodes
+  become: yes
+  vars:
+    deployment_dest: /opt/school-platform         # Dest for docker-compose.yml and support files
+    image_dir_local: ./tmp/docker-images          # Local path where Ansible finds .tar files
+  tasks:
+    # --- Networking setup (macvlan) ---
+    - name: Install docker & compose
+      apt:
+        name:
+          - docker.io
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+
+    - name: Create macvlan host interface
+      command: ip link add macvlan0 link wlan0 type macvlan mode bridge
+      ignore_errors: yes
+
+    - name: Assign IP to macvlan host interface
+      command: ip addr add 10.84.84.10/24 dev macvlan0
+      ignore_errors: yes
+
+    - name: Bring up macvlan
+      command: ip link set macvlan0 up
+      ignore_errors: yes
+
+    # --- Push images ---
+    - name: Copy Hugo image archive to Pi
+      copy:
+        src: "{{ image_dir_local }}/hugo.tar"
+        dest: /tmp/hugo.tar
+
+    - name: Copy supervisord_services image archive to Pi
+      copy:
+        src: "{{ image_dir_local }}/supervisord_services.tar"
+        dest: /tmp/supervisord_services.tar
+
+    - name: Load Hugo image
+      shell: docker load -i /tmp/hugo.tar
+
+    - name: Load supervisord_services image
+      shell: docker load -i /tmp/supervisord_services.tar
+
+    # --- Push docker-compose.yml & config files ---
+    - name: Copy docker-compose.yml to Pi
+      copy:
+        src: ./school-platform/docker-compose.yml
+        dest: "{{ deployment_dest }}/docker-compose.yml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Copy Hugo site folder to Pi
+      copy:
+        src: ./school-platform/hugo
+        dest: "{{ deployment_dest }}/hugo"
+        mode: "0755"
+
+    - name: Copy supervisord config folder to Pi
+      copy:
+        src: ./school-platform/supervisord_services
+        dest: "{{ deployment_dest }}/supervisord_services"
+        mode: "0755"
+
+    # --- Run containers without build step ---
+    - name: Start containers from preloaded images
+      shell: docker compose up -d
+      args:
+        chdir: "{{ deployment_dest }}"
+
+    # --- Systemd service to start on boot ---
+    - name: Enable school-platform service
+      copy:
+        dest: /etc/systemd/system/school-platform.service
+        content: |
+          [Unit]
+          Description=School Platform Docker Compose Service
+          Requires=docker.service
+          After=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory={{ deployment_dest }}
+          ExecStart=/usr/bin/docker compose up -d
+          ExecStop=/usr/bin/docker compose down
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: enable-service
+
+    # --- Kiosk Mode for Hugo homepage ---
+    - name: Auto-launch Hugo site in Chromium kiosk mode
+      copy:
+        dest: "{{ ansible_env.HOME }}/.config/autostart/hugo.desktop"
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Exec=chromium-browser --kiosk http://localhost:1313
+          Hidden=false
+          NoDisplay=false
+          X-GNOME-Autostart-enabled=true
+          Name=HugoDocs
+
+  handlers:
+    - name: enable-service
+      systemd:
+        name: school-platform.service
+        enabled: yes
+        state: started
